@@ -1,0 +1,13 @@
+[package]
+name = "nullfs"
+version = "0.1.0"
+authors = ["Yishen Miao <mys721tx@gmail.com>"]
+description = "A null filesystem"
+edition = "2018"
+license = "GPL-3.0-or-later"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+fuse_mt = "0.5"
+clap = "2.33.1"
