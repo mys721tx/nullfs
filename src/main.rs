@@ -3,297 +3,267 @@ use std::path::Path;
 
 use clap::{app_from_crate, crate_authors, crate_description, crate_name, crate_version, Arg};
 
-use fuse_mt::*;
-use libc::*;
-use time::*;
-
-pub struct NullFS {}
+use fuse::{
+    FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
+    ReplyEntry, ReplyOpen, ReplyWrite, ReplyXattr, Request,
+};
+use libc::{ENOENT, EPERM, ERANGE};
+use time::Timespec;
 
 const TTL: Timespec = Timespec { sec: 1, nsec: 0 };
 
-impl FilesystemMT for NullFS {
-    fn init(&self, _req: RequestInfo) -> ResultEmpty {
-        dbg!("init");
-        Ok(())
-    }
+const DIR_ATTR: FileAttr = FileAttr {
+    ino: 1,
+    size: 0,
+    blocks: 0,
+    atime: Timespec { sec: 0, nsec: 0 },
+    mtime: Timespec { sec: 0, nsec: 0 },
+    ctime: Timespec { sec: 0, nsec: 0 },
+    crtime: Timespec { sec: 0, nsec: 0 },
+    kind: FileType::Directory,
+    perm: 0o777,
+    nlink: 2,
+    uid: 0,
+    gid: 0,
+    rdev: 0,
+    flags: 0,
+};
 
-    fn destroy(&self, _req: RequestInfo) {
-    }
+const NULL_ATTR: FileAttr = FileAttr {
+    ino: 2,
+    size: 0,
+    blocks: 1,
+    atime: Timespec { sec: 0, nsec: 0 },
+    mtime: Timespec { sec: 0, nsec: 0 },
+    ctime: Timespec { sec: 0, nsec: 0 },
+    crtime: Timespec { sec: 0, nsec: 0 },
+    kind: FileType::RegularFile,
+    perm: 0o666,
+    nlink: 1,
+    uid: 0,
+    gid: 0,
+    rdev: 0,
+    flags: 0,
+};
 
-    fn getattr(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>) -> ResultEntry {
-        dbg!("getattr", path, _fh);
+struct NullFS;
 
-        if path == Path::new("/null") {
-            Ok((
-                TTL,
-                FileAttr {
-                    size: 0,
-                    blocks: 0,
-                    atime: Timespec::new(0, 0),
-                    mtime: Timespec::new(0, 0),
-                    crtime: Timespec::new(0, 0),
-                    ctime: Timespec::new(0, 0),
-                    kind: FileType::RegularFile,
-                    perm: 0o0666,
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                    flags: 0,
-                },
-            ))
-        } else if path == Path::new("/") {
-            Ok((
-                TTL,
-                FileAttr {
-                    size: 0,
-                    blocks: 0,
-                    atime: Timespec::new(0, 0),
-                    mtime: Timespec::new(0, 0),
-                    crtime: Timespec::new(0, 0),
-                    ctime: Timespec::new(0, 0),
-                    kind: FileType::Directory,
-                    perm: 0o0777,
-                    nlink: 3,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                    flags: 0,
-                },
-            ))
+impl Filesystem for NullFS {
+    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+        if parent == 1 && name == "null" {
+            reply.entry(&TTL, &NULL_ATTR, 0);
         } else {
-            Err(ENOENT)
+            reply.error(ENOENT);
         }
     }
 
-    fn chmod(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>, _mode: u32) -> ResultEmpty {
-        Err(ENOENT)
+    fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
+        match ino {
+            1 => reply.attr(&TTL, &DIR_ATTR),
+            2 => reply.attr(&TTL, &NULL_ATTR),
+            _ => reply.error(ENOENT),
+        }
     }
 
-    fn chown(
-        &self,
-        _req: RequestInfo,
-        _path: &Path,
-        _fh: Option<u64>,
+    fn setattr(
+        &mut self,
+        _req: &Request,
+        ino: u64,
+        _mode: Option<u32>,
         _uid: Option<u32>,
         _gid: Option<u32>,
-    ) -> ResultEmpty {
-        Err(ENOENT)
-    }
-
-    fn truncate(
-        &self,
-        _req: RequestInfo,
-        _path: &Path,
-        _fh: Option<u64>,
-        _size: u64,
-    ) -> ResultEmpty {
-        Err(ENOENT)
-    }
-
-    fn utimens(
-        &self,
-        _req: RequestInfo,
-        _path: &Path,
-        _fh: Option<u64>,
+        _size: Option<u64>,
         _atime: Option<Timespec>,
         _mtime: Option<Timespec>,
-    ) -> ResultEmpty {
-        Err(ENOENT)
-    }
-
-    fn utimens_macos(
-        &self,
-        _req: RequestInfo,
-        _path: &Path,
         _fh: Option<u64>,
         _crtime: Option<Timespec>,
         _chgtime: Option<Timespec>,
         _bkuptime: Option<Timespec>,
         _flags: Option<u32>,
-    ) -> ResultEmpty {
-        Err(ENOENT)
-    }
-
-    fn readlink(&self, _req: RequestInfo, _path: &Path) -> ResultData {
-        Err(ENOENT)
-    }
-
-    fn mknod(
-        &self,
-        _req: RequestInfo,
-        _parent: &Path,
-        _name: &OsStr,
-        _mode: u32,
-        _rdev: u32,
-    ) -> ResultEntry {
-        Err(ENOENT)
-    }
-
-    fn mkdir(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr, _mode: u32) -> ResultEntry {
-        Err(ENOENT)
-    }
-
-    fn unlink(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr) -> ResultEmpty {
-        Err(ENOENT)
-    }
-
-    fn rmdir(&self, _req: RequestInfo, _parent: &Path, _name: &OsStr) -> ResultEmpty {
-        Err(ENOENT)
-    }
-
-    fn symlink(
-        &self,
-        _req: RequestInfo,
-        _parent: &Path,
-        _name: &OsStr,
-        _target: &Path,
-    ) -> ResultEntry {
-        Err(ENOENT)
-    }
-
-    fn rename(
-        &self,
-        _req: RequestInfo,
-        _parent: &Path,
-        _name: &OsStr,
-        _newparent: &Path,
-        _newname: &OsStr,
-    ) -> ResultEmpty {
-        Err(ENOENT)
-    }
-
-    fn link(
-        &self,
-        _req: RequestInfo,
-        _path: &Path,
-        _newparent: &Path,
-        _newname: &OsStr,
-    ) -> ResultEntry {
-        Err(ENOENT)
-    }
-
-    fn open(&self, _req: RequestInfo, _path: &Path, _flags: u32) -> ResultOpen {
-        Err(ENOENT)
+        reply: ReplyAttr,
+    ) {
+        match ino {
+            1 => reply.attr(&TTL, &DIR_ATTR),
+            2 => reply.attr(&TTL, &NULL_ATTR),
+            _ => reply.error(ENOENT),
+        }
     }
 
     fn read(
-        &self,
-        _req: RequestInfo,
-        _path: &Path,
+        &mut self,
+        _req: &Request,
+        ino: u64,
         _fh: u64,
-        _offset: u64,
+        _offset: i64,
         _size: u32,
-        _result: impl FnOnce(Result<&[u8], c_int>),
+        reply: ReplyData,
     ) {
+        if ino == 2 {
+            reply.data(b"");
+        } else {
+            reply.error(ENOENT);
+        }
+    }
+
+    fn readdir(
+        &mut self,
+        _req: &Request,
+        ino: u64,
+        _fh: u64,
+        offset: i64,
+        mut reply: ReplyDirectory,
+    ) {
+        if ino != 1 {
+            reply.error(ENOENT);
+            return;
+        }
+
+        let entries = vec![
+            (1, FileType::Directory, "."),
+            (1, FileType::Directory, ".."),
+            (2, FileType::RegularFile, "null"),
+        ];
+
+        for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
+            // i + 1 means the index of the next entry
+            reply.add(entry.0, (i + 1) as i64, entry.1, entry.2);
+        }
+        reply.ok();
     }
 
     fn write(
-        &self,
-        _req: RequestInfo,
-        _path: &Path,
+        &mut self,
+        _req: &Request,
+        ino: u64,
         _fh: u64,
-        _offset: u64,
-        _data: Vec<u8>,
+        _offset: i64,
+        data: &[u8],
         _flags: u32,
-    ) -> ResultWrite {
-        Err(ENOENT)
+        reply: ReplyWrite,
+    ) {
+        if ino != 2 {
+            reply.error(ENOENT);
+            return;
+        }
+
+        reply.written(data.len() as u32)
     }
 
-    fn flush(&self, _req: RequestInfo, _path: &Path, _fh: u64, _lock_owner: u64) -> ResultEmpty {
-        Err(ENOENT)
+    fn create(
+        &mut self,
+        _req: &Request,
+        parent: u64,
+        name: &OsStr,
+        _mode: u32,
+        flags: u32,
+        reply: ReplyCreate,
+    ) {
+        if parent == 1 && name == "null" {
+            reply.created(&TTL, &NULL_ATTR, 0, 2, flags);
+        } else {
+            reply.error(EPERM);
+        }
+    }
+
+    fn mknod(
+        &mut self,
+        _req: &Request,
+        parent: u64,
+        name: &OsStr,
+        _mode: u32,
+        _rdev: u32,
+        reply: ReplyEntry,
+    ) {
+        if parent == 1 && name == "null" {
+            reply.entry(&TTL, &NULL_ATTR, 0);
+        } else {
+            reply.error(EPERM);
+        }
+    }
+
+    fn flush(&mut self, _req: &Request, ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
+        match ino {
+            1 => reply.error(EPERM),
+            2 => reply.ok(),
+            _ => reply.error(ENOENT),
+        }
     }
 
     fn release(
-        &self,
-        _req: RequestInfo,
-        _path: &Path,
+        &mut self,
+        _req: &Request,
+        ino: u64,
         _fh: u64,
         _flags: u32,
         _lock_owner: u64,
         _flush: bool,
-    ) -> ResultEmpty {
-        Err(ENOENT)
-    }
-
-    fn fsync(&self, _req: RequestInfo, _path: &Path, _fh: u64, _datasync: bool) -> ResultEmpty {
-        Err(ENOENT)
-    }
-
-    fn opendir(&self, _req: RequestInfo, _path: &Path, _flags: u32) -> ResultOpen {
-        Err(ENOENT)
-    }
-
-    fn readdir(&self, _req: RequestInfo, _path: &Path, _fh: u64) -> ResultReaddir {
-        Err(ENOENT)
-    }
-
-    fn releasedir(&self, _req: RequestInfo, _path: &Path, _fh: u64, _flags: u32) -> ResultEmpty {
-        Err(ENOENT)
-    }
-
-    fn fsyncdir(&self, _req: RequestInfo, _path: &Path, _fh: u64, _datasync: bool) -> ResultEmpty {
-        Err(ENOENT)
-    }
-
-    fn statfs(&self, _req: RequestInfo, _path: &Path) -> ResultStatfs {
-        dbg!("statfs", _path);
-        Ok(Statfs {
-            blocks: 0,
-            bfree: 0,
-            bavail: 0,
-            files: 1,
-            ffree: 0,
-            bsize: 4096,
-            namelen: 255,
-            frsize: 0,
-        })
-    }
-
-    fn setxattr(
-        &self,
-        _req: RequestInfo,
-        _path: &Path,
-        _name: &OsStr,
-        _value: &[u8],
-        _flags: u32,
-        _position: u32,
-    ) -> ResultEmpty {
-        Err(ENOENT)
-    }
-
-    fn getxattr(&self, _req: RequestInfo, _path: &Path, _name: &OsStr, _size: u32) -> ResultXattr {
-        Err(ENOENT)
-    }
-
-    fn listxattr(&self, _req: RequestInfo, _path: &Path, _size: u32) -> ResultXattr {
-        Err(ENOENT)
-    }
-
-    fn removexattr(&self, _req: RequestInfo, _path: &Path, _name: &OsStr) -> ResultEmpty {
-        Err(ENOENT)
-    }
-
-    fn access(&self, _req: RequestInfo, path: &Path, _mask: u32) -> ResultEmpty {
-        dbg!("access", path, _mask);
-        if path == Path::new("/null") {
-            Ok(())
-        } else if path == Path::new("/") {
-            Ok(())
-        } else {
-            Err(ENOENT)
+        reply: ReplyEmpty,
+    ) {
+        match ino {
+            1 => reply.error(EPERM),
+            2 => reply.ok(),
+            _ => reply.error(ENOENT),
         }
     }
 
-    fn create(
-        &self,
-        _req: RequestInfo,
-        _parent: &Path,
-        _name: &OsStr,
-        _mode: u32,
-        _flags: u32,
-    ) -> ResultCreate {
-        Err(ENOENT)
+    fn fsync(&mut self, _req: &Request, ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
+        match ino {
+            1 => reply.error(EPERM),
+            2 => reply.ok(),
+            _ => reply.error(ENOENT),
+        }
+    }
+
+    fn open(&mut self, _req: &Request, ino: u64, flags: u32, reply: ReplyOpen) {
+        match ino {
+            1 => reply.error(EPERM),
+            2 => reply.opened(2, flags),
+            _ => reply.error(ENOENT),
+        }
+    }
+
+    fn releasedir(&mut self, _req: &Request, ino: u64, _fh: u64, _flags: u32, reply: ReplyEmpty) {
+        match ino {
+            1 => reply.ok(),
+            2 => reply.error(EPERM),
+            _ => reply.error(ENOENT),
+        }
+    }
+
+    fn fsyncdir(&mut self, _req: &Request, ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
+        match ino {
+            1 => reply.ok(),
+            2 => reply.error(EPERM),
+            _ => reply.error(ENOENT),
+        }
+    }
+
+    fn opendir(&mut self, _req: &Request, ino: u64, flags: u32, reply: ReplyOpen) {
+        match ino {
+            1 => reply.opened(1, flags),
+            2 => reply.error(EPERM),
+            _ => reply.error(ENOENT),
+        }
+    }
+
+    fn access(&mut self, _req: &Request, ino: u64, _mask: u32, reply: ReplyEmpty) {
+        match ino {
+            1 => reply.ok(),
+            2 => reply.ok(),
+            _ => reply.error(ENOENT),
+        }
+    }
+
+    fn getxattr(&mut self, _req: &Request, ino: u64, _name: &OsStr, size: u32, reply: ReplyXattr) {
+        if size == 0 {
+            match ino {
+                1 => reply.size(0),
+                2 => reply.size(0),
+                _ => reply.error(ENOENT),
+            }
+            return;
+        }
+        reply.error(ERANGE);
     }
 }
 
@@ -311,9 +281,14 @@ fn main() {
 
     dbg!(path);
 
-    let filesystem = NullFS {};
+    let fuse_args: Vec<&OsStr> = vec![
+        &OsStr::new("-o"),
+        &OsStr::new("auto_unmount"),
+        &OsStr::new("-o"),
+        &OsStr::new("rw"),
+        &OsStr::new("-o"),
+        &OsStr::new("fsname=nullfs"),
+    ];
 
-    let fuse_args: Vec<&OsStr> = vec![&OsStr::new("-o"), &OsStr::new("auto_unmount")];
-
-    fuse_mt::mount(fuse_mt::FuseMT::new(filesystem, 1), &path, &fuse_args).unwrap();
+    fuse::mount(NullFS, &path, &fuse_args).unwrap();
 }
