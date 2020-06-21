@@ -230,8 +230,15 @@ impl FilesystemMT for NullFS {
         Err(ENOENT)
     }
 
-    fn access(&self, _req: RequestInfo, _path: &Path, _mask: u32) -> ResultEmpty {
-        Err(ENOENT)
+    fn access(&self, _req: RequestInfo, path: &Path, _mask: u32) -> ResultEmpty {
+        dbg!("access", path, _mask);
+        if path == Path::new("/null") {
+            Ok(())
+        } else if path == Path::new("/") {
+            Ok(())
+        } else {
+            Err(ENOENT)
+        }
     }
 
     fn create(
