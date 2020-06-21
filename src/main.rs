@@ -9,6 +9,8 @@ use time::*;
 
 pub struct NullFS {}
 
+const TTL: Timespec = Timespec { sec: 1, nsec: 0 };
+
 impl FilesystemMT for NullFS {
     fn init(&self, _req: RequestInfo) -> ResultEmpty {
         dbg!("init");
@@ -18,8 +20,50 @@ impl FilesystemMT for NullFS {
     fn destroy(&self, _req: RequestInfo) {
     }
 
-    fn getattr(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>) -> ResultEntry {
-        Err(ENOENT)
+    fn getattr(&self, _req: RequestInfo, path: &Path, _fh: Option<u64>) -> ResultEntry {
+        dbg!("getattr", path, _fh);
+
+        if path == Path::new("/null") {
+            Ok((
+                TTL,
+                FileAttr {
+                    size: 0,
+                    blocks: 0,
+                    atime: Timespec::new(0, 0),
+                    mtime: Timespec::new(0, 0),
+                    crtime: Timespec::new(0, 0),
+                    ctime: Timespec::new(0, 0),
+                    kind: FileType::RegularFile,
+                    perm: 0o0666,
+                    nlink: 1,
+                    uid: 0,
+                    gid: 0,
+                    rdev: 0,
+                    flags: 0,
+                },
+            ))
+        } else if path == Path::new("/") {
+            Ok((
+                TTL,
+                FileAttr {
+                    size: 0,
+                    blocks: 0,
+                    atime: Timespec::new(0, 0),
+                    mtime: Timespec::new(0, 0),
+                    crtime: Timespec::new(0, 0),
+                    ctime: Timespec::new(0, 0),
+                    kind: FileType::Directory,
+                    perm: 0o0777,
+                    nlink: 3,
+                    uid: 0,
+                    gid: 0,
+                    rdev: 0,
+                    flags: 0,
+                },
+            ))
+        } else {
+            Err(ENOENT)
+        }
     }
 
     fn chmod(&self, _req: RequestInfo, _path: &Path, _fh: Option<u64>, _mode: u32) -> ResultEmpty {
