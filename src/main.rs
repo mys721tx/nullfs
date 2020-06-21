@@ -193,7 +193,17 @@ impl FilesystemMT for NullFS {
     }
 
     fn statfs(&self, _req: RequestInfo, _path: &Path) -> ResultStatfs {
-        Err(ENOENT)
+        dbg!("statfs", _path);
+        Ok(Statfs {
+            blocks: 0,
+            bfree: 0,
+            bavail: 0,
+            files: 1,
+            ffree: 0,
+            bsize: 4096,
+            namelen: 255,
+            frsize: 0,
+        })
     }
 
     fn setxattr(
