@@ -275,20 +275,24 @@ fn main() {
                 .index(1)
                 .required(true),
         )
+        .arg(
+            Arg::with_name("OPTION")
+                .help("mount options")
+                .short("o")
+                .long("option")
+                .takes_value(true)
+                .number_of_values(1)
+                .multiple(true),
+        )
         .get_matches();
 
     let path = Path::new(matches.value_of("MOUNT").unwrap());
 
-    dbg!(path);
+    let options: Vec<&OsStr> = matches
+        .values_of_os("OPTION")
+        .unwrap()
+        .flat_map(|x| vec![OsStr::new("-o"), x])
+        .collect();
 
-    let fuse_args: Vec<&OsStr> = vec![
-        &OsStr::new("-o"),
-        &OsStr::new("auto_unmount"),
-        &OsStr::new("-o"),
-        &OsStr::new("rw"),
-        &OsStr::new("-o"),
-        &OsStr::new("fsname=nullfs"),
-    ];
-
-    fuse::mount(NullFS, &path, &fuse_args).unwrap();
+    fuse::mount(NullFS, &path, &options).unwrap();
 }
