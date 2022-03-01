@@ -1,25 +1,25 @@
 use std::ffi::OsStr;
 use std::path::Path;
+use std::time::{Duration, SystemTime};
 
 use clap::{command, Arg};
 
 use fuser::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
-    ReplyEntry, ReplyOpen, ReplyWrite, ReplyXattr, Request,
+    ReplyEntry, ReplyOpen, ReplyWrite, ReplyXattr, Request, TimeOrNow,
 };
 use libc::{ENOENT, EPERM, ERANGE};
-use time::Timespec;
 
-const TTL: Timespec = Timespec { sec: 1, nsec: 0 };
+const TTL: Duration = Duration::from_secs(1);
 
 const DIR_ATTR: FileAttr = FileAttr {
     ino: 1,
     size: 0,
     blocks: 0,
-    atime: Timespec { sec: 0, nsec: 0 },
-    mtime: Timespec { sec: 0, nsec: 0 },
-    ctime: Timespec { sec: 0, nsec: 0 },
-    crtime: Timespec { sec: 0, nsec: 0 },
+    atime: SystemTime::UNIX_EPOCH,
+    mtime: SystemTime::UNIX_EPOCH,
+    ctime: SystemTime::UNIX_EPOCH,
+    crtime: SystemTime::UNIX_EPOCH,
     kind: FileType::Directory,
     perm: 0o777,
     nlink: 2,
@@ -27,16 +27,17 @@ const DIR_ATTR: FileAttr = FileAttr {
     gid: 0,
     rdev: 0,
     flags: 0,
+    blksize: 0,
 };
 
 const NULL_ATTR: FileAttr = FileAttr {
     ino: 2,
     size: 0,
     blocks: 1,
-    atime: Timespec { sec: 0, nsec: 0 },
-    mtime: Timespec { sec: 0, nsec: 0 },
-    ctime: Timespec { sec: 0, nsec: 0 },
-    crtime: Timespec { sec: 0, nsec: 0 },
+    atime: SystemTime::UNIX_EPOCH,
+    mtime: SystemTime::UNIX_EPOCH,
+    ctime: SystemTime::UNIX_EPOCH,
+    crtime: SystemTime::UNIX_EPOCH,
     kind: FileType::RegularFile,
     perm: 0o666,
     nlink: 1,
@@ -44,6 +45,7 @@ const NULL_ATTR: FileAttr = FileAttr {
     gid: 0,
     rdev: 0,
     flags: 0,
+    blksize: 0,
 };
 
 struct NullFS;
@@ -73,12 +75,13 @@ impl Filesystem for NullFS {
         _uid: Option<u32>,
         _gid: Option<u32>,
         _size: Option<u64>,
-        _atime: Option<Timespec>,
-        _mtime: Option<Timespec>,
+        _atime: Option<TimeOrNow>,
+        _mtime: Option<TimeOrNow>,
+        _ctime: Option<SystemTime>,
         _fh: Option<u64>,
-        _crtime: Option<Timespec>,
-        _chgtime: Option<Timespec>,
-        _bkuptime: Option<Timespec>,
+        _crtime: Option<SystemTime>,
+        _chgtime: Option<SystemTime>,
+        _bkuptime: Option<SystemTime>,
         _flags: Option<u32>,
         reply: ReplyAttr,
     ) {
@@ -96,6 +99,8 @@ impl Filesystem for NullFS {
         _fh: u64,
         _offset: i64,
         _size: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
         if ino == 2 {
@@ -138,7 +143,9 @@ impl Filesystem for NullFS {
         _fh: u64,
         _offset: i64,
         data: &[u8],
-        _flags: u32,
+        _write_flags: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         reply: ReplyWrite,
     ) {
         if ino != 2 {
@@ -155,11 +162,12 @@ impl Filesystem for NullFS {
         parent: u64,
         name: &OsStr,
         _mode: u32,
-        flags: u32,
+        _umask: u32,
+        flags: i32,
         reply: ReplyCreate,
     ) {
         if parent == 1 && name == "null" {
-            reply.created(&TTL, &NULL_ATTR, 0, 2, flags);
+            reply.created(&TTL, &NULL_ATTR, 0, 2, flags as u32);
         } else {
             reply.error(EPERM);
         }
@@ -171,6 +179,7 @@ impl Filesystem for NullFS {
         parent: u64,
         name: &OsStr,
         _mode: u32,
+        _umask: u32,
         _rdev: u32,
         reply: ReplyEntry,
     ) {
@@ -194,8 +203,8 @@ impl Filesystem for NullFS {
         _req: &Request,
         ino: u64,
         _fh: u64,
-        _flags: u32,
-        _lock_owner: u64,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         _flush: bool,
         reply: ReplyEmpty,
     ) {
@@ -214,15 +223,15 @@ impl Filesystem for NullFS {
         }
     }
 
-    fn open(&mut self, _req: &Request, ino: u64, flags: u32, reply: ReplyOpen) {
+    fn open(&mut self, _req: &Request, ino: u64, flags: i32, reply: ReplyOpen) {
         match ino {
             1 => reply.error(EPERM),
-            2 => reply.opened(2, flags),
+            2 => reply.opened(2, flags as u32),
             _ => reply.error(ENOENT),
         }
     }
 
-    fn releasedir(&mut self, _req: &Request, ino: u64, _fh: u64, _flags: u32, reply: ReplyEmpty) {
+    fn releasedir(&mut self, _req: &Request, ino: u64, _fh: u64, _flags: i32, reply: ReplyEmpty) {
         match ino {
             1 => reply.ok(),
             2 => reply.error(EPERM),
@@ -238,15 +247,15 @@ impl Filesystem for NullFS {
         }
     }
 
-    fn opendir(&mut self, _req: &Request, ino: u64, flags: u32, reply: ReplyOpen) {
+    fn opendir(&mut self, _req: &Request, ino: u64, flags: i32, reply: ReplyOpen) {
         match ino {
-            1 => reply.opened(1, flags),
+            1 => reply.opened(1, flags as u32),
             2 => reply.error(EPERM),
             _ => reply.error(ENOENT),
         }
     }
 
-    fn access(&mut self, _req: &Request, ino: u64, _mask: u32, reply: ReplyEmpty) {
+    fn access(&mut self, _req: &Request, ino: u64, _mask: i32, reply: ReplyEmpty) {
         match ino {
             1 => reply.ok(),
             2 => reply.ok(),
@@ -294,5 +303,5 @@ fn main() {
         .flat_map(|x| vec![OsStr::new("-o"), x])
         .collect();
 
-    fuse::mount(NullFS, &path, &options).unwrap();
+    fuser::mount(NullFS, &path, &options).unwrap();
 }
