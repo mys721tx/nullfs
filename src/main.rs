@@ -1,9 +1,9 @@
 use std::ffi::OsStr;
 use std::path::Path;
 
-use clap::{app_from_crate, crate_authors, crate_description, crate_name, crate_version, Arg};
+use clap::{command, Arg};
 
-use fuse::{
+use fuser::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
     ReplyEntry, ReplyOpen, ReplyWrite, ReplyXattr, Request,
 };
@@ -268,21 +268,21 @@ impl Filesystem for NullFS {
 }
 
 fn main() {
-    let matches = app_from_crate!()
+    let matches = command!()
         .arg(
-            Arg::with_name("MOUNT")
+            Arg::new("MOUNT")
                 .help("path to the mounting point")
                 .index(1)
                 .required(true),
         )
         .arg(
-            Arg::with_name("OPTION")
+            Arg::new("OPTION")
                 .help("mount options")
-                .short("o")
+                .short('o')
                 .long("option")
                 .takes_value(true)
                 .number_of_values(1)
-                .multiple(true),
+                .multiple_occurrences(true),
         )
         .get_matches();
 
