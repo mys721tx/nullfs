@@ -23,6 +23,16 @@ use crate::{DIR_ATTR, NULL_ATTR, NULL_INO, NULL_NAME, ROOT_INO};
 pub const NULL_OPEN_FLAGS: FopenFlags =
     FopenFlags::FOPEN_DIRECT_IO.union(FopenFlags::FOPEN_NOFLUSH);
 
+/// Result of a successful `lookup`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Entry {
+    /// The name exists with these attributes.
+    Found(&'static FileAttr),
+    /// The name does not exist. Replied as a negative entry so the kernel
+    /// caches the miss instead of asking again on every access.
+    Absent,
+}
+
 /// A directory entry as handed to `ReplyDirectory::add`:
 /// `(inode, offset of the next entry, kind, name)`.
 pub type DirEntry = (INodeNo, u64, FileType, &'static str);
@@ -37,12 +47,15 @@ fn is_null_entry(parent: INodeNo, name: &OsStr) -> bool {
     parent == ROOT_INO && name == NULL_NAME
 }
 
-/// `lookup`: only `/null` exists.
-pub fn lookup(parent: INodeNo, name: &OsStr) -> Result<&'static FileAttr, Errno> {
-    if is_null_entry(parent, name) {
-        Ok(&NULL_ATTR)
-    } else {
+/// `lookup`: only `/null` exists. Other names in the root are cacheable
+/// misses; lookups under anything but the root are errors.
+pub fn lookup(parent: INodeNo, name: &OsStr) -> Result<Entry, Errno> {
+    if parent != ROOT_INO {
         Err(Errno::ENOENT)
+    } else if name == NULL_NAME {
+        Ok(Entry::Found(&NULL_ATTR))
+    } else {
+        Ok(Entry::Absent)
     }
 }
 
@@ -151,10 +164,10 @@ mod tests {
 
     #[test]
     fn lookup_finds_only_null_in_root() {
-        assert_eq!(lookup(ROOT_INO, name("null")), Ok(&NULL_ATTR));
-        assert_eq!(lookup(ROOT_INO, name("other")), Err(Errno::ENOENT));
-        assert_eq!(lookup(ROOT_INO, name("")), Err(Errno::ENOENT));
-        assert_eq!(lookup(ROOT_INO, name("NULL")), Err(Errno::ENOENT));
+        assert_eq!(lookup(ROOT_INO, name("null")), Ok(Entry::Found(&NULL_ATTR)));
+        assert_eq!(lookup(ROOT_INO, name("other")), Ok(Entry::Absent));
+        assert_eq!(lookup(ROOT_INO, name("")), Ok(Entry::Absent));
+        assert_eq!(lookup(ROOT_INO, name("NULL")), Ok(Entry::Absent));
         assert_eq!(lookup(NULL_INO, name("null")), Err(Errno::ENOENT));
         assert_eq!(lookup(MISSING, name("null")), Err(Errno::ENOENT));
     }

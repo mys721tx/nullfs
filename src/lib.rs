@@ -65,6 +65,13 @@ pub const NULL_ATTR: FileAttr = FileAttr {
     blksize: 0,
 };
 
+/// A negative entry: inode 0 tells the kernel the name does not exist, and
+/// the TTL lets it cache that answer. Only the inode is read.
+const NEGATIVE_ATTR: FileAttr = FileAttr {
+    ino: INodeNo(0),
+    ..NULL_ATTR
+};
+
 /// The FUSE filesystem. All decisions live in [`ops`]; this impl only replies.
 pub struct NullFS;
 
@@ -79,7 +86,8 @@ impl Filesystem for NullFS {
 
     fn lookup(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
         match ops::lookup(parent, name) {
-            Ok(attr) => reply.entry(&TTL, attr, GENERATION),
+            Ok(ops::Entry::Found(attr)) => reply.entry(&TTL, attr, GENERATION),
+            Ok(ops::Entry::Absent) => reply.entry(&TTL, &NEGATIVE_ATTR, GENERATION),
             Err(e) => reply.error(e),
         }
     }

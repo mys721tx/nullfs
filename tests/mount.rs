@@ -216,3 +216,27 @@ fn shared_mmap_still_works() {
         assert_eq!(libc::munmap(addr, len), 0);
     }
 }
+
+#[test]
+#[ignore = "needs /dev/fuse and permission to mount"]
+fn missing_names_stay_missing() {
+    // Misses are cached as negative entries; repeated lookups and a create
+    // after a cached miss must still behave as before.
+    let m = Mount::new();
+    let missing = m.root().join("missing");
+    for _ in 0..3 {
+        assert_eq!(
+            fs::metadata(&missing).unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+    }
+    assert_eq!(
+        File::create(&missing).unwrap_err().kind(),
+        ErrorKind::PermissionDenied
+    );
+    assert_eq!(
+        fs::metadata(&missing).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    assert!(fs::metadata(m.null()).unwrap().is_file());
+}
