@@ -1,19 +1,25 @@
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
-use clap::{command, Arg};
+use clap::{command, value_parser, Arg, ArgAction};
 
 use fuser::{
-    FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
-    ReplyEntry, ReplyOpen, ReplyWrite, ReplyXattr, Request, TimeOrNow,
+    AccessFlags, BsdFileFlags, Config, Errno, FileAttr, FileHandle, FileType, Filesystem,
+    FopenFlags, Generation, INodeNo, LockOwner, MountOption, OpenFlags, ReplyAttr, ReplyCreate,
+    ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyWrite, ReplyXattr, Request,
+    SessionACL, TimeOrNow, WriteFlags,
 };
-use libc::{ENOENT, EPERM, ERANGE};
+
+const ROOT_INO: INodeNo = INodeNo::ROOT;
+const NULL_INO: INodeNo = INodeNo(2);
+
+const GENERATION: Generation = Generation(0);
 
 const TTL: Duration = Duration::from_secs(1);
 
 const DIR_ATTR: FileAttr = FileAttr {
-    ino: 1,
+    ino: ROOT_INO,
     size: 0,
     blocks: 0,
     atime: SystemTime::UNIX_EPOCH,
@@ -31,7 +37,7 @@ const DIR_ATTR: FileAttr = FileAttr {
 };
 
 const NULL_ATTR: FileAttr = FileAttr {
-    ino: 2,
+    ino: NULL_INO,
     size: 0,
     blocks: 1,
     atime: SystemTime::UNIX_EPOCH,
@@ -51,26 +57,26 @@ const NULL_ATTR: FileAttr = FileAttr {
 struct NullFS;
 
 impl Filesystem for NullFS {
-    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        if parent == 1 && name == "null" {
-            reply.entry(&TTL, &NULL_ATTR, 0);
+    fn lookup(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
+        if parent == ROOT_INO && name == "null" {
+            reply.entry(&TTL, &NULL_ATTR, GENERATION);
         } else {
-            reply.error(ENOENT);
+            reply.error(Errno::ENOENT);
         }
     }
 
-    fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
-        match ino {
+    fn getattr(&self, _req: &Request, ino: INodeNo, _fh: Option<FileHandle>, reply: ReplyAttr) {
+        match ino.0 {
             1 => reply.attr(&TTL, &DIR_ATTR),
             2 => reply.attr(&TTL, &NULL_ATTR),
-            _ => reply.error(ENOENT),
+            _ => reply.error(Errno::ENOENT),
         }
     }
 
     fn setattr(
-        &mut self,
+        &self,
         _req: &Request,
-        ino: u64,
+        ino: INodeNo,
         _mode: Option<u32>,
         _uid: Option<u32>,
         _gid: Option<u32>,
@@ -78,78 +84,80 @@ impl Filesystem for NullFS {
         _atime: Option<TimeOrNow>,
         _mtime: Option<TimeOrNow>,
         _ctime: Option<SystemTime>,
-        _fh: Option<u64>,
+        _fh: Option<FileHandle>,
         _crtime: Option<SystemTime>,
         _chgtime: Option<SystemTime>,
         _bkuptime: Option<SystemTime>,
-        _flags: Option<u32>,
+        _flags: Option<BsdFileFlags>,
         reply: ReplyAttr,
     ) {
-        match ino {
+        match ino.0 {
             1 => reply.attr(&TTL, &DIR_ATTR),
             2 => reply.attr(&TTL, &NULL_ATTR),
-            _ => reply.error(ENOENT),
+            _ => reply.error(Errno::ENOENT),
         }
     }
 
     fn read(
-        &mut self,
+        &self,
         _req: &Request,
-        ino: u64,
-        _fh: u64,
-        _offset: i64,
+        ino: INodeNo,
+        _fh: FileHandle,
+        _offset: u64,
         _size: u32,
-        _flags: i32,
-        _lock_owner: Option<u64>,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
         reply: ReplyData,
     ) {
-        if ino == 2 {
+        if ino == NULL_INO {
             reply.data(b"");
         } else {
-            reply.error(ENOENT);
+            reply.error(Errno::ENOENT);
         }
     }
 
     fn readdir(
-        &mut self,
+        &self,
         _req: &Request,
-        ino: u64,
-        _fh: u64,
-        offset: i64,
+        ino: INodeNo,
+        _fh: FileHandle,
+        offset: u64,
         mut reply: ReplyDirectory,
     ) {
-        if ino != 1 {
-            reply.error(ENOENT);
+        if ino != ROOT_INO {
+            reply.error(Errno::ENOENT);
             return;
         }
 
-        let entries = vec![
-            (1, FileType::Directory, "."),
-            (1, FileType::Directory, ".."),
-            (2, FileType::RegularFile, "null"),
+        let entries = [
+            (ROOT_INO, FileType::Directory, "."),
+            (ROOT_INO, FileType::Directory, ".."),
+            (NULL_INO, FileType::RegularFile, "null"),
         ];
 
         for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
             // i + 1 means the index of the next entry
-            reply.add(entry.0, (i + 1) as i64, entry.1, entry.2);
+            if reply.add(entry.0, (i + 1) as u64, entry.1, entry.2) {
+                break;
+            }
         }
         reply.ok();
     }
 
     fn write(
-        &mut self,
+        &self,
         _req: &Request,
-        ino: u64,
-        _fh: u64,
-        _offset: i64,
+        ino: INodeNo,
+        _fh: FileHandle,
+        _offset: u64,
         data: &[u8],
-        _write_flags: u32,
-        _flags: i32,
-        _lock_owner: Option<u64>,
+        _write_flags: WriteFlags,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
         reply: ReplyWrite,
     ) {
-        if ino != 2 {
-            reply.error(ENOENT);
+        if ino != NULL_INO {
+            reply.error(Errno::ENOENT);
             return;
         }
 
@@ -157,151 +165,254 @@ impl Filesystem for NullFS {
     }
 
     fn create(
-        &mut self,
+        &self,
         _req: &Request,
-        parent: u64,
+        parent: INodeNo,
         name: &OsStr,
         _mode: u32,
         _umask: u32,
-        flags: i32,
+        _flags: i32,
         reply: ReplyCreate,
     ) {
-        if parent == 1 && name == "null" {
-            reply.created(&TTL, &NULL_ATTR, 0, 2, flags as u32);
+        if parent == ROOT_INO && name == "null" {
+            reply.created(
+                &TTL,
+                &NULL_ATTR,
+                GENERATION,
+                FileHandle(NULL_INO.0),
+                FopenFlags::empty(),
+            );
         } else {
-            reply.error(EPERM);
+            reply.error(Errno::EPERM);
         }
     }
 
     fn mknod(
-        &mut self,
+        &self,
         _req: &Request,
-        parent: u64,
+        parent: INodeNo,
         name: &OsStr,
         _mode: u32,
         _umask: u32,
         _rdev: u32,
         reply: ReplyEntry,
     ) {
-        if parent == 1 && name == "null" {
-            reply.entry(&TTL, &NULL_ATTR, 0);
+        if parent == ROOT_INO && name == "null" {
+            reply.entry(&TTL, &NULL_ATTR, GENERATION);
         } else {
-            reply.error(EPERM);
+            reply.error(Errno::EPERM);
         }
     }
 
-    fn flush(&mut self, _req: &Request, ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
-        match ino {
-            1 => reply.error(EPERM),
+    fn flush(
+        &self,
+        _req: &Request,
+        ino: INodeNo,
+        _fh: FileHandle,
+        _lock_owner: LockOwner,
+        reply: ReplyEmpty,
+    ) {
+        match ino.0 {
+            1 => reply.error(Errno::EPERM),
             2 => reply.ok(),
-            _ => reply.error(ENOENT),
+            _ => reply.error(Errno::ENOENT),
         }
     }
 
     fn release(
-        &mut self,
+        &self,
         _req: &Request,
-        ino: u64,
-        _fh: u64,
-        _flags: i32,
-        _lock_owner: Option<u64>,
+        ino: INodeNo,
+        _fh: FileHandle,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        match ino {
-            1 => reply.error(EPERM),
+        match ino.0 {
+            1 => reply.error(Errno::EPERM),
             2 => reply.ok(),
-            _ => reply.error(ENOENT),
+            _ => reply.error(Errno::ENOENT),
         }
     }
 
-    fn fsync(&mut self, _req: &Request, ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
-        match ino {
-            1 => reply.error(EPERM),
+    fn fsync(
+        &self,
+        _req: &Request,
+        ino: INodeNo,
+        _fh: FileHandle,
+        _datasync: bool,
+        reply: ReplyEmpty,
+    ) {
+        match ino.0 {
+            1 => reply.error(Errno::EPERM),
             2 => reply.ok(),
-            _ => reply.error(ENOENT),
+            _ => reply.error(Errno::ENOENT),
         }
     }
 
-    fn open(&mut self, _req: &Request, ino: u64, flags: i32, reply: ReplyOpen) {
-        match ino {
-            1 => reply.error(EPERM),
-            2 => reply.opened(2, flags as u32),
-            _ => reply.error(ENOENT),
+    fn open(&self, _req: &Request, ino: INodeNo, _flags: OpenFlags, reply: ReplyOpen) {
+        match ino.0 {
+            1 => reply.error(Errno::EPERM),
+            2 => reply.opened(FileHandle(NULL_INO.0), FopenFlags::empty()),
+            _ => reply.error(Errno::ENOENT),
         }
     }
 
-    fn releasedir(&mut self, _req: &Request, ino: u64, _fh: u64, _flags: i32, reply: ReplyEmpty) {
-        match ino {
+    fn releasedir(
+        &self,
+        _req: &Request,
+        ino: INodeNo,
+        _fh: FileHandle,
+        _flags: OpenFlags,
+        reply: ReplyEmpty,
+    ) {
+        match ino.0 {
             1 => reply.ok(),
-            2 => reply.error(EPERM),
-            _ => reply.error(ENOENT),
+            2 => reply.error(Errno::EPERM),
+            _ => reply.error(Errno::ENOENT),
         }
     }
 
-    fn fsyncdir(&mut self, _req: &Request, ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
-        match ino {
+    fn fsyncdir(
+        &self,
+        _req: &Request,
+        ino: INodeNo,
+        _fh: FileHandle,
+        _datasync: bool,
+        reply: ReplyEmpty,
+    ) {
+        match ino.0 {
             1 => reply.ok(),
-            2 => reply.error(EPERM),
-            _ => reply.error(ENOENT),
+            2 => reply.error(Errno::EPERM),
+            _ => reply.error(Errno::ENOENT),
         }
     }
 
-    fn opendir(&mut self, _req: &Request, ino: u64, flags: i32, reply: ReplyOpen) {
-        match ino {
-            1 => reply.opened(1, flags as u32),
-            2 => reply.error(EPERM),
-            _ => reply.error(ENOENT),
+    fn opendir(&self, _req: &Request, ino: INodeNo, _flags: OpenFlags, reply: ReplyOpen) {
+        match ino.0 {
+            1 => reply.opened(FileHandle(ROOT_INO.0), FopenFlags::empty()),
+            2 => reply.error(Errno::EPERM),
+            _ => reply.error(Errno::ENOENT),
         }
     }
 
-    fn access(&mut self, _req: &Request, ino: u64, _mask: i32, reply: ReplyEmpty) {
-        match ino {
+    fn access(&self, _req: &Request, ino: INodeNo, _mask: AccessFlags, reply: ReplyEmpty) {
+        match ino.0 {
             1 => reply.ok(),
             2 => reply.ok(),
-            _ => reply.error(ENOENT),
+            _ => reply.error(Errno::ENOENT),
         }
     }
 
-    fn getxattr(&mut self, _req: &Request, ino: u64, _name: &OsStr, size: u32, reply: ReplyXattr) {
+    fn getxattr(&self, _req: &Request, ino: INodeNo, _name: &OsStr, size: u32, reply: ReplyXattr) {
         if size == 0 {
-            match ino {
+            match ino.0 {
                 1 => reply.size(0),
                 2 => reply.size(0),
-                _ => reply.error(ENOENT),
+                _ => reply.error(Errno::ENOENT),
             }
             return;
         }
-        reply.error(ERANGE);
+        reply.error(Errno::ERANGE);
     }
 }
 
-fn main() {
+/// Builds a session configuration from comma-separated `-o` mount options.
+fn parse_options<'a>(options: impl Iterator<Item = &'a str>) -> Config {
+    let mut config = Config::default();
+
+    for option in options.flat_map(|x| x.split(',')).filter(|x| !x.is_empty()) {
+        match option {
+            "allow_other" => config.acl = SessionACL::All,
+            "allow_root" => config.acl = SessionACL::RootAndOwner,
+            _ => config.mount_options.push(parse_mount_option(option)),
+        }
+    }
+
+    config
+}
+
+fn parse_mount_option(option: &str) -> MountOption {
+    match option {
+        "auto_unmount" => MountOption::AutoUnmount,
+        "default_permissions" => MountOption::DefaultPermissions,
+        "dev" => MountOption::Dev,
+        "nodev" => MountOption::NoDev,
+        "suid" => MountOption::Suid,
+        "nosuid" => MountOption::NoSuid,
+        "ro" => MountOption::RO,
+        "rw" => MountOption::RW,
+        "exec" => MountOption::Exec,
+        "noexec" => MountOption::NoExec,
+        "atime" => MountOption::Atime,
+        "noatime" => MountOption::NoAtime,
+        "dirsync" => MountOption::DirSync,
+        "sync" => MountOption::Sync,
+        "async" => MountOption::Async,
+        _ => match option.split_once('=') {
+            Some(("fsname", name)) => MountOption::FSName(name.into()),
+            Some(("subtype", name)) => MountOption::Subtype(name.into()),
+            _ => MountOption::CUSTOM(option.into()),
+        },
+    }
+}
+
+fn main() -> std::io::Result<()> {
     let matches = command!()
         .arg(
             Arg::new("MOUNT")
                 .help("path to the mounting point")
                 .index(1)
-                .required(true),
+                .required(true)
+                .value_parser(value_parser!(PathBuf)),
         )
         .arg(
             Arg::new("OPTION")
                 .help("mount options")
                 .short('o')
                 .long("option")
-                .takes_value(true)
-                .number_of_values(1)
-                .multiple_occurrences(true),
+                .action(ArgAction::Append),
         )
         .get_matches();
 
-    let path = Path::new(matches.value_of("MOUNT").unwrap());
+    let path = matches
+        .get_one::<PathBuf>("MOUNT")
+        .expect("MOUNT is a required argument");
 
-    let options: Vec<&OsStr> = matches
-        .values_of_os("OPTION")
-        .unwrap()
-        .flat_map(|x| vec![OsStr::new("-o"), x])
-        .collect();
+    let config = parse_options(
+        matches
+            .get_many::<String>("OPTION")
+            .unwrap_or_default()
+            .map(String::as_str),
+    );
 
-    fuser::mount(NullFS, &path, &options).unwrap();
+    fuser::mount(NullFS, path, &config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_comma_separated_options() {
+        let config =
+            parse_options(["ro,nosuid", "fsname=null", "allow_other", "foo=bar"].into_iter());
+
+        assert_eq!(
+            config.mount_options,
+            [
+                MountOption::RO,
+                MountOption::NoSuid,
+                MountOption::FSName("null".into()),
+                MountOption::CUSTOM("foo=bar".into()),
+            ]
+        );
+        assert_eq!(config.acl, SessionACL::All);
+    }
+
+    #[test]
+    fn no_options_yields_default_config() {
+        assert_eq!(parse_options(std::iter::empty()), Config::default());
+    }
 }
