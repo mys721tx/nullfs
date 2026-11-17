@@ -16,7 +16,12 @@ use crate::{DIR_ATTR, NULL_ATTR, NULL_INO, NULL_NAME, ROOT_INO};
 /// straight from the caller's buffer in requests of up to the negotiated
 /// maximum size, instead of being copied into the cache and sent in smaller
 /// pieces. Nothing is ever cached for `/null`, so no caching is lost.
-pub const NULL_OPEN_FLAGS: FopenFlags = FopenFlags::FOPEN_DIRECT_IO;
+///
+/// No-flush tells the kernel (Linux 5.16+) not to send a `flush` request on
+/// every `close()`; nullfs never has anything to flush. Older kernels ignore
+/// the flag and still send `flush`, which [`file_op`] answers with success.
+pub const NULL_OPEN_FLAGS: FopenFlags =
+    FopenFlags::FOPEN_DIRECT_IO.union(FopenFlags::FOPEN_NOFLUSH);
 
 /// A directory entry as handed to `ReplyDirectory::add`:
 /// `(inode, offset of the next entry, kind, name)`.
@@ -255,8 +260,9 @@ mod tests {
     }
 
     #[test]
-    fn null_is_opened_with_direct_io() {
+    fn null_open_flags() {
         assert!(NULL_OPEN_FLAGS.contains(FopenFlags::FOPEN_DIRECT_IO));
+        assert!(NULL_OPEN_FLAGS.contains(FopenFlags::FOPEN_NOFLUSH));
         // Keeping the cache would contradict bypassing it.
         assert!(!NULL_OPEN_FLAGS.contains(FopenFlags::FOPEN_KEEP_CACHE));
     }
