@@ -240,3 +240,30 @@ fn missing_names_stay_missing() {
     );
     assert!(fs::metadata(m.null()).unwrap().is_file());
 }
+
+#[test]
+#[ignore = "needs /dev/fuse and permission to mount"]
+fn repeated_listings_are_identical() {
+    // The root is opened with cache-dir and keep-cache, so later listings
+    // come from the kernel's cache; they must match the first one exactly.
+    let m = Mount::new();
+    let list = || -> Vec<_> {
+        let mut names: Vec<_> = fs::read_dir(m.root())
+            .unwrap()
+            .map(|e| {
+                let e = e.unwrap();
+                (e.file_name(), e.file_type().unwrap().is_file())
+            })
+            .collect();
+        names.sort();
+        names
+    };
+    let first = list();
+    assert_eq!(first, [("null".into(), true)]);
+    for _ in 0..5 {
+        assert_eq!(list(), first);
+    }
+    // A failed create must not leave a stale entry in the cached listing.
+    assert!(File::create(m.root().join("other")).is_err());
+    assert_eq!(list(), first);
+}

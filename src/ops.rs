@@ -133,9 +133,17 @@ pub fn open(ino: INodeNo) -> Result<(FileHandle, FopenFlags), Errno> {
     file_op(ino).map(|()| (FileHandle(NULL_INO.0), NULL_OPEN_FLAGS))
 }
 
+/// Flags for every open handle of the root directory.
+///
+/// Cache-dir lets the kernel keep the entries `readdir` returned and answer
+/// later listings itself; keep-cache stops each new `opendir` from throwing
+/// that cache away. The root's contents never change, so it never goes stale.
+pub const DIR_OPEN_FLAGS: FopenFlags =
+    FopenFlags::FOPEN_CACHE_DIR.union(FopenFlags::FOPEN_KEEP_CACHE);
+
 /// `opendir`: only the root can be opened as a directory.
-pub fn opendir(ino: INodeNo) -> Result<FileHandle, Errno> {
-    dir_op(ino).map(|()| FileHandle(ROOT_INO.0))
+pub fn opendir(ino: INodeNo) -> Result<(FileHandle, FopenFlags), Errno> {
+    dir_op(ino).map(|()| (FileHandle(ROOT_INO.0), DIR_OPEN_FLAGS))
 }
 
 /// `access`: everything that exists is accessible.
@@ -267,9 +275,15 @@ mod tests {
         assert_eq!(open(ROOT_INO), Err(Errno::EPERM));
         assert_eq!(open(MISSING), Err(Errno::ENOENT));
 
-        assert_eq!(opendir(ROOT_INO), Ok(FileHandle(1)));
+        assert_eq!(opendir(ROOT_INO), Ok((FileHandle(1), DIR_OPEN_FLAGS)));
         assert_eq!(opendir(NULL_INO), Err(Errno::EPERM));
         assert_eq!(opendir(MISSING), Err(Errno::ENOENT));
+    }
+
+    #[test]
+    fn root_dir_is_cached() {
+        assert!(DIR_OPEN_FLAGS.contains(FopenFlags::FOPEN_CACHE_DIR));
+        assert!(DIR_OPEN_FLAGS.contains(FopenFlags::FOPEN_KEEP_CACHE));
     }
 
     #[test]

@@ -5,8 +5,8 @@ use std::ffi::OsStr;
 use std::time::{Duration, SystemTime};
 
 use fuser::{
-    AccessFlags, BsdFileFlags, FileAttr, FileHandle, FileType, Filesystem, FopenFlags, Generation,
-    INodeNo, InitFlags, KernelConfig, LockOwner, OpenFlags, ReplyAttr, ReplyCreate, ReplyData,
+    AccessFlags, BsdFileFlags, FileAttr, FileHandle, FileType, Filesystem, Generation, INodeNo,
+    InitFlags, KernelConfig, LockOwner, OpenFlags, ReplyAttr, ReplyCreate, ReplyData,
     ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyWrite, ReplyXattr, Request, TimeOrNow,
     WriteFlags,
 };
@@ -283,7 +283,7 @@ impl Filesystem for NullFS {
 
     fn opendir(&self, _req: &Request, ino: INodeNo, _flags: OpenFlags, reply: ReplyOpen) {
         match ops::opendir(ino) {
-            Ok(fh) => reply.opened(fh, FopenFlags::empty()),
+            Ok((fh, flags)) => reply.opened(fh, flags),
             Err(e) => reply.error(e),
         }
     }
