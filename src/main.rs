@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
-use clap::{command, value_parser, Arg, ArgAction};
+use clap::{Arg, ArgAction, command, value_parser};
 
 use fuser::{
     AccessFlags, BsdFileFlags, Config, Errno, FileAttr, FileHandle, FileType, Filesystem,
