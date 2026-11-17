@@ -6,8 +6,9 @@ use std::time::{Duration, SystemTime};
 
 use fuser::{
     AccessFlags, BsdFileFlags, FileAttr, FileHandle, FileType, Filesystem, FopenFlags, Generation,
-    INodeNo, LockOwner, OpenFlags, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
-    ReplyEntry, ReplyOpen, ReplyWrite, ReplyXattr, Request, TimeOrNow, WriteFlags,
+    INodeNo, InitFlags, KernelConfig, LockOwner, OpenFlags, ReplyAttr, ReplyCreate, ReplyData,
+    ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyWrite, ReplyXattr, Request, TimeOrNow,
+    WriteFlags,
 };
 
 pub mod ops;
@@ -68,6 +69,14 @@ pub const NULL_ATTR: FileAttr = FileAttr {
 pub struct NullFS;
 
 impl Filesystem for NullFS {
+    fn init(&mut self, _req: &Request, config: &mut KernelConfig) -> std::io::Result<()> {
+        // `/null` is opened with direct I/O, which normally makes shared
+        // `mmap` fail. Ask the kernel (Linux 6.6+) to allow it anyway; older
+        // kernels lack the capability and keep the stricter behaviour.
+        let _ = config.add_capabilities(InitFlags::FUSE_DIRECT_IO_ALLOW_MMAP);
+        Ok(())
+    }
+
     fn lookup(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
         match ops::lookup(parent, name) {
             Ok(attr) => reply.entry(&TTL, attr, GENERATION),
@@ -178,7 +187,7 @@ impl Filesystem for NullFS {
                 attr,
                 GENERATION,
                 FileHandle(NULL_INO.0),
-                FopenFlags::empty(),
+                ops::NULL_OPEN_FLAGS,
             ),
             Err(e) => reply.error(e),
         }
@@ -237,7 +246,7 @@ impl Filesystem for NullFS {
 
     fn open(&self, _req: &Request, ino: INodeNo, _flags: OpenFlags, reply: ReplyOpen) {
         match ops::open(ino) {
-            Ok(fh) => reply.opened(fh, FopenFlags::empty()),
+            Ok((fh, flags)) => reply.opened(fh, flags),
             Err(e) => reply.error(e),
         }
     }

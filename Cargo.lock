@@ -363,6 +363,7 @@ dependencies = [
  "clap",
  "criterion",
  "fuser",
+ "libc",
  "tempfile",
 ]
 

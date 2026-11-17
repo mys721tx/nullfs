@@ -170,3 +170,49 @@ fn concurrent_writers() {
     });
     assert_eq!(fs::read(&path).unwrap(), b"");
 }
+
+#[test]
+#[ignore = "needs /dev/fuse and permission to mount"]
+fn large_write_completes_in_one_call() {
+    // With direct I/O the kernel splits one write() into as many FUSE
+    // requests as needed and reports the full length back.
+    let m = Mount::new();
+    let mut f = OpenOptions::new().write(true).open(m.null()).unwrap();
+    let buf = vec![0x5A; 4 << 20];
+    assert_eq!(f.write(&buf).unwrap(), buf.len());
+}
+
+#[test]
+#[ignore = "needs /dev/fuse and permission to mount"]
+fn shared_mmap_still_works() {
+    // Direct I/O files reject shared mmap unless the kernel grants
+    // FUSE_DIRECT_IO_ALLOW_MMAP (Linux 6.6+), which nullfs requests.
+    use std::os::fd::AsRawFd;
+
+    let m = Mount::new();
+    let f = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(m.null())
+        .unwrap();
+    let len = 4096;
+    // SAFETY: plain mmap/munmap of a valid fd; the mapping is never touched,
+    // since accessing past EOF of the empty file would raise SIGBUS.
+    unsafe {
+        let addr = libc::mmap(
+            std::ptr::null_mut(),
+            len,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_SHARED,
+            f.as_raw_fd(),
+            0,
+        );
+        assert_ne!(
+            addr,
+            libc::MAP_FAILED,
+            "mmap failed: {}",
+            std::io::Error::last_os_error()
+        );
+        assert_eq!(libc::munmap(addr, len), 0);
+    }
+}

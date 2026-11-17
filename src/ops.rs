@@ -6,9 +6,17 @@
 
 use std::ffi::OsStr;
 
-use fuser::{Errno, FileAttr, FileHandle, FileType, INodeNo};
+use fuser::{Errno, FileAttr, FileHandle, FileType, FopenFlags, INodeNo};
 
 use crate::{DIR_ATTR, NULL_ATTR, NULL_INO, NULL_NAME, ROOT_INO};
+
+/// Flags for every open handle of `/null`.
+///
+/// Direct I/O bypasses the kernel page cache: writes are handed to nullfs
+/// straight from the caller's buffer in requests of up to the negotiated
+/// maximum size, instead of being copied into the cache and sent in smaller
+/// pieces. Nothing is ever cached for `/null`, so no caching is lost.
+pub const NULL_OPEN_FLAGS: FopenFlags = FopenFlags::FOPEN_DIRECT_IO;
 
 /// A directory entry as handed to `ReplyDirectory::add`:
 /// `(inode, offset of the next entry, kind, name)`.
@@ -103,8 +111,8 @@ pub fn dir_op(ino: INodeNo) -> Result<(), Errno> {
 }
 
 /// `open`: only the null file can be opened as a file.
-pub fn open(ino: INodeNo) -> Result<FileHandle, Errno> {
-    file_op(ino).map(|()| FileHandle(NULL_INO.0))
+pub fn open(ino: INodeNo) -> Result<(FileHandle, FopenFlags), Errno> {
+    file_op(ino).map(|()| (FileHandle(NULL_INO.0), NULL_OPEN_FLAGS))
 }
 
 /// `opendir`: only the root can be opened as a directory.
@@ -237,13 +245,20 @@ mod tests {
 
     #[test]
     fn open_and_opendir_return_inode_handles() {
-        assert_eq!(open(NULL_INO), Ok(FileHandle(2)));
+        assert_eq!(open(NULL_INO), Ok((FileHandle(2), NULL_OPEN_FLAGS)));
         assert_eq!(open(ROOT_INO), Err(Errno::EPERM));
         assert_eq!(open(MISSING), Err(Errno::ENOENT));
 
         assert_eq!(opendir(ROOT_INO), Ok(FileHandle(1)));
         assert_eq!(opendir(NULL_INO), Err(Errno::EPERM));
         assert_eq!(opendir(MISSING), Err(Errno::ENOENT));
+    }
+
+    #[test]
+    fn null_is_opened_with_direct_io() {
+        assert!(NULL_OPEN_FLAGS.contains(FopenFlags::FOPEN_DIRECT_IO));
+        // Keeping the cache would contradict bypassing it.
+        assert!(!NULL_OPEN_FLAGS.contains(FopenFlags::FOPEN_KEEP_CACHE));
     }
 
     #[test]
