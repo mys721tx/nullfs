@@ -9,7 +9,7 @@ license = "GPL-3.0-or-later"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-fuser = "0.18"
+fuser = "0.19"
 clap = { version = "4.6", features = ["cargo"] }
 
 # Unit tests live in the lib/bin; keep them out of `cargo bench`.
